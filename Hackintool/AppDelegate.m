@@ -8627,7 +8627,7 @@ NSInteger usbControllerSort(id a, id b, void *context)
 
 - (IBAction)starButtonClicked:(id)sender
 {
-	[[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://github.com/benbaker76/Hackintool"]];
+	[[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://github.com/pyquick/Hackintool"]];
 }
 
 - (IBAction)webButtonClicked:(id)sender
