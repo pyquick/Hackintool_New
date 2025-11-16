@@ -5,7 +5,7 @@
 //  Created by Ben Baker on 6/19/18.
 //  Copyright (c) 2018 Ben Baker. All rights reserved.
 //
-
+#import "RootMounter.h"
 #import "AppDelegate.h"
 #import "Localizer.h"
 #import "Authorization.h"
@@ -48,7 +48,7 @@ extern "C" {
 #define COLOR_ALPHA					0.3f
 
 uint32_t const FIND_AND_REPLACE_COUNT = 20;
-
+bool _isSnap=NO;
 //#define USE_ALTERNATING_BACKGROUND_COLOR
 #define SWAPSHORT(n)	((n & 0x0000FFFF) << 16 | (n & 0xFFFF0000) >> 16)
 
@@ -733,7 +733,9 @@ void authorizationGrantedCallback(AuthorizationRef authorization, OSErr status, 
 		_generateSerialNumber = [NSString stringWithFormat:@"%s%s%s%s%s", info.country, info.year, info.week, info.line, info.model];
 		
 		NSString *smUUID = getUUID();
-		
+        RootVolumeManager *manager = [[RootVolumeManager alloc] init];
+        NSString *diskIdentifier = nil;
+
 		[self addToList:_generateSerialInfoArray name:@"Serial Number" value:_generateSerialNumber];
 		[self addToList:_generateSerialInfoArray name:@"Board Serial Number" value:[NSString stringWithUTF8String:mlb]];
 		[self addToList:_generateSerialInfoArray name:@"SmUUID" value:smUUID];
@@ -6588,6 +6590,10 @@ NSInteger usbControllerSort(id a, id b, void *context)
 	{
 		[self disableGatekeeperAndMountDiskReadWrite:_toolsOutputTextView forced:YES];
 	}
+    else if ([identifier isEqualToString:@"Snap"])
+    {
+        [self create_a_snapshot:_toolsOutputTextView forced:YES];
+    }
 	else if ([identifier isEqualToString:@"InstallKexts"])
 	{
 		[self installKexts];
@@ -6598,7 +6604,6 @@ NSInteger usbControllerSort(id a, id b, void *context)
 		[self rebuildKextCacheAndRepairPermissions:_toolsOutputTextView];
 	}
 }
-
 - (IBAction)nvramChanged:(id)sender
 {
 	NSInteger row = [_nvramTableView selectedRow];
@@ -10709,7 +10714,7 @@ NSInteger usbControllerSort(id a, id b, void *context)
 {
 	if (requestAdministratorRights() != 0)
 		return NO;
-	
+    
 	if (!forced)
 	{
 		// Already applied patch in this session
@@ -10730,16 +10735,53 @@ NSInteger usbControllerSort(id a, id b, void *context)
 	
 	if (![self showAlert:@"Disable Gatekeeper and mount the disk in read/write mode?" text:@"This is required for some operations on macOS 10.15+"])
 		return NO;
-	
+    RootVolumeManager *manager = [[RootVolumeManager alloc] init];
+    NSString *diskIdentifier = nil;
+    diskIdentifier = [manager fetchRootVolumeIdentifier];
+    NSString *dev=@"/dev/";
+    NSString *disktoMount = [dev stringByAppendingString:diskIdentifier];
+    NSOperatingSystemVersion minimumSupportedOSVersion = { .majorVersion = 11, .minorVersion = 0, .patchVersion = 0 };
+    BOOL isOSAtLeastBigSur = [NSProcessInfo.processInfo isOperatingSystemAtLeastVersion:minimumSupportedOSVersion];
 	[self launchCommandAsAdmin:textView launchPath:@"spctl" arguments: @[@"--master-disable"]];
-	[self launchCommandAsAdmin:textView launchPath:@"mount" arguments: @[@"-uw", @"/"]];
+    if(!isOSAtLeastBigSur){
+        [self launchCommandAsAdmin:textView launchPath:@"mount" arguments: @[@"-uw", @"/"]];
+        _gatekeeperDisabled = YES;
+        return YES;
+    }
+    [self launchCommandAsAdmin:textView launchPath:@"mkdir" arguments: @[@"/System/Volumes/Update/mnt"]];
+    [self launchCommandAsAdmin:textView launchPath:@"mount" arguments: @[@"-o", @"nobrowse",@"-t",@"apfs",disktoMount,@"/System/Volumes/Update/mnt"]];
 	[self launchCommandAsAdmin:textView launchPath:@"killall" arguments: @[@"Finder"]];
 	
 	_gatekeeperDisabled = YES;
 	
 	return YES;
 }
-
+- (BOOL) create_a_snapshot:(NSTextView *)textView forced:(BOOL)forced{
+    RootVolumeManager *manager = [[RootVolumeManager alloc] init];
+    NSString *diskIdentifier = nil;
+    diskIdentifier = [manager fetchRootVolumeIdentifier];
+    NSString *dev=@"/dev/";
+    NSOperatingSystemVersion minimumSupportedOSVersion = { .majorVersion = 11, .minorVersion = 0, .patchVersion = 0 };
+    BOOL isOSAtLeastBigSur = [NSProcessInfo.processInfo isOperatingSystemAtLeastVersion:minimumSupportedOSVersion];
+    if(!isOSAtLeastBigSur||!_gatekeeperDisabled){
+        NSString *text1=@"This is only need on macOS11+";
+        NSString *text2=@"You should disable Gatekeeper & Mount your device";
+        NSString *ans=nil;
+        if(!isOSAtLeastBigSur){
+            ans=text1;
+        }
+        else if(!_gatekeeperDisabled){
+            ans=text2;
+        }
+        [self showAlert:@"There is no need to create a snapshot." text:ans];
+        return YES;
+    }
+    
+    [self launchCommandAsAdmin:textView launchPath:@"bless" arguments: @[@"--folder",@"/System/Volumes/Update/mnt/System/Library/CoreServices",@"--bootefi",@"--create-snapshot"]];
+    [self launchCommandAsAdmin:textView launchPath:@"killall" arguments: @[@"Finder"]];
+    _isSnap=YES;
+    return YES;
+}
 - (BOOL)showSavePanelWithDirectory:(NSString *)directory nameField:(NSString *)nameField fileTypes:(NSArray *)fileTypes path:(NSString **)path
 {
 	NSOpenPanel *openPanel = [NSOpenPanel openPanel];

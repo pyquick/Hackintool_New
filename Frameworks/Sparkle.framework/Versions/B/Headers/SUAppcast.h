@@ -43,3 +43,4 @@ SU_EXPORT @interface SUAppcast : NSObject
 NS_ASSUME_NONNULL_END
 
 #endif
+
